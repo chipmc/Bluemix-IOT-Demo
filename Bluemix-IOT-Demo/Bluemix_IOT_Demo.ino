@@ -92,11 +92,11 @@
 #include "SPI.h"
 #include "Adafruit_CC3000.h"
 #include "PubSubClient.h"
-//#include <string.h>
-//#include "utility/debug.h"
-//#include <stdlib.h>
+#include <string.h>
+#include "utility/debug.h"
+#include <stdlib.h>
 #include "GPS.h"      // Code and Library from: https://github.com/rvnash/ultimate_gps_teensy3
-//#include <WProgram.h>
+#include <WProgram.h>
 #include <i2c_t3.h>
 #include "KeysandPasswords.h"   // Comment this out if you don't want to store keys and passwords in a separate file
 
@@ -143,21 +143,21 @@ const int ledYELLOW = 17;      // Indicates setup mode
 // Global Variables
 unsigned long ipaddr;
 int value = 0;
-unsigned int ReportingInterval = 10000;  // How often do you want to send to Watson IOT
+unsigned int ReportingInterval = 5000;  // How often do you want to send to Watson IOT
 unsigned long LastReport = 0;            // Keep track of when we last sent data
 int TimeOut = 20000;                      // How long will we wait for a command to complete
 char c;                                  // Used to relay input from the GPS serial feed
-String Location = "";                    // Will build the Location string here
-String Orientation = "";                   // Where we store orientation
-int InputValue = 0;            // Raw sensitivity input
+int Orientation;                   // Where we store orientation
+float Latitude;
+float Longitude;
 byte Sensitivity = 0x00;       // Hex variable for sensitivity
 static byte source;
 int ledState = LOW;            // variable used to store the last LED status, to toggle the light
-int Debounce = 1000;           // Time in ms between knocks
 float tempC = 0.0;
-char Axes[4]={'x','y','z'};
-int accelCount[3];  // Stores the 12-bit signed value
-
+char Axes[4]={'x','y','z'};  // This is true if the accelerometer is laying flat
+int accelCount[3];          // Stores the 12-bit signed value
+float accelG[3];            // Stores the real accel value in g's
+float accelGzeros[3];       // Stores the real accel value in g's when the system is initialized - this is the reference for tilt
 
 // Use hardware SPI for the remaining pins, for UNO, SCK = 13, MISO = 12, MOSI = 11
 Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT, SPI_CLOCK_DIVIDER);
@@ -169,7 +169,6 @@ GPS gps(&gpsSerial,true);
 // Prototypes
 String buildJson();         // Function where we build the JSON payload
 void callback(char* topic, byte* payload, int length);      // Here we can capture reply messages from Bluemix
-boolean ParseLocation(); // Sample data: $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47
 void readAccelData(int * destination);   // Here is where we get acceleration on x,y,and z axes
 void getData();     // This section will sample the thermister for a temp measurement
 boolean testConnectionToBluemix();      // Let's make sure we can get to Bluemix before proceeding
@@ -194,7 +193,11 @@ PubSubClient client(MS_PROXY, 1883, 0, ethClient);
 void setup()
 {
     Serial.begin(19200);
+    gps.startSerial(9600);  // Start serial1 for GPS
+    Wire.begin(); // Start serial on i2c
     delay(1000);    // Need this delay or we will miss the serial stream - unique to Teensy
+    // Initialize the GPS
+    gps.setSentencesToReceive(OUTPUT_RMC_GGA);  // Sets the format for the GPS sentences
     analogReference(EXTERNAL);
     pinMode(TempPowerPin, OUTPUT);
     pinMode(ledRED, OUTPUT);
@@ -210,7 +213,7 @@ void setup()
     Serial.println(F("by Chip McClelland  "));
     Serial.println(F("Open Source - Hardware & Software"));
     Serial.println(F("---------------------------"));
-    Wire.begin(); // Start serial on i2c
+
     // Initialize the Accelerometer
     Serial.print("Initializing the accelerometer: ");
     byte c = readRegister(MMA8452_ADDRESS, 0x0D);            // Read WHO_AM_I register to test communications
@@ -247,8 +250,12 @@ void setup()
         BlinkForever();
     }
     Serial.println("Success");
-    
-    digitalWrite(ledYELLOW,LOW);
+    // Calculate the zero G values for the Accelerometer
+    readAccelData(accelCount);  // Read the x/y/z adc values
+    // Now we'll calculate the accleration value into actual g's
+    for (int i=0; i<3; i++)
+        accelGzeros[i] = (float) accelCount[i]/((1<<12)/(2*SCALE));  // get actual g value, this depends on scale being set
+    digitalWrite(ledYELLOW,LOW); // Signals the end of the setup section
 }
 
 void loop()
@@ -263,19 +270,28 @@ void loop()
                 ledState = !ledState;                        // toggle the status of the ledPin:
                 digitalWrite(ledRED, ledState);              // update the LED pin itself
                 if (gps.sentenceAvailable()) gps.parseSentence();
-                if (gps.newValuesSinceDataRead()) {
+                if(gps.fix) {
                     gps.dataRead();
-                    ParseLocation();
+                    Latitude = gps.latitude;
+                    Longitude = gps.longitude;
+                }
+                else
+                {
+                    Latitude = 39.0295;     // Dummy location - IBM Bethesda
+                    Longitude = -77.1357;
                 }
                 getData();
+                NonBlockingDelay(100); // To let the knock die out
                 readAccelData(accelCount);  // Read the x/y/z adc values
-                //Below we'll print out the ADC values for acceleration
-                Serial.print("= ");
+                // Now we'll calculate the accleration value into actual g's
                 for (int i=0; i<3; i++)
+                    accelG[i] = (float) accelCount[i]/((1<<12)/(2*SCALE)) - accelGzeros[i];  // get actual g value,this depends on scale
+                for (int i=0; i<3; i++)                // Print out values
                 {
                     Serial.print(Axes[i]);
-                    Serial.print(accelCount[i]);
-                    Serial.print("\t\t");
+                    Serial.print("= ");
+                    Serial.print(accelG[i], 4);  // Print g values
+                    Serial.print("\t\t");  // tabs in between axes
                 }
                 Serial.println();
                 portraitLandscapeHandler();
@@ -305,14 +321,22 @@ void loop()
 
 String buildJson()  // Function where we build the JSON payload
 {
-    String data = "{\"d\":{\"Temp\":\"";
-    data+=int(tempC);
-    data+="\",\"Orientation\":\"";
-    data+=Orientation;
-    data+="\,";
-    data+=Location;
-    data+="}}";
-    Serial.println(data);
+    String data = "{\"d\":{\"TempC\":";
+    data +=int(tempC);
+    data +=",\"Orient\":";
+    data +=Orientation;
+    data += ",\"lat\":";
+    data += Latitude;
+    data += ",\"lng\":";
+    data += Longitude;
+    data += ",\"aX\":";
+    data += accelG[1];  // This maps y to x - our sensor sits on edge not flat
+    data += ",\"aY\":";
+    data += accelG[2];  // This maps z to y - our sensor sits on edge
+    data += ",\"aZ\":";
+    data += accelG[0];  // This maps x to z
+    data +="}}";
+    // Serial.println(data);  // For debugging
     return data;
 }
 
@@ -327,23 +351,10 @@ void callback(char* topic, byte* payload, int length)   // Here we can capture r
     Serial.println();
 }
 
-boolean ParseLocation() // Sample data: $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47
-// Refer to http://www.gpsinformation.org/dale/nmea.htm#GGA
-{
-    char Latitude[10];
-    char Longitude[10];
-    float Lat = gps.latitude;
-    float Lon = gps.longitude;
-    dtostrf(Lat,7,4,Latitude);
-    dtostrf(Lon,7,4,Longitude);
-    Location = "\"lat\":\"" + String(Latitude) + "\",\"lng\":\"" + String(Longitude)+"\"";
-    Serial.println(Location);
-}
 
 void readAccelData(int * destination)   // Here is where we get acceleration on x,y,and z axes
 {
     byte rawData[6];  // x/y/z accel register data stored here
-    
     readRegisters(MMA8452_ADDRESS, 0x01, 6, &rawData[0]);  // Read the six raw data registers into data array
     
     // Loop to calculate 12-bit ADC and g value for each axis
@@ -382,12 +393,7 @@ void getData()      // This section will sample the thermister for a temp measur
         average += samples[i];
     }
     average /= numSamples;
-    Serial.print("Average analog reading ");
-    Serial.println(average);
-    // convert the value to resistance
-    average = (seriesResistor/average)*1023 - seriesResistor;
-    Serial.print("Thermistor resistance ");
-    Serial.println(average);
+    average = (seriesResistor/average)*1023 - seriesResistor;    // convert the value to resistance
     float steinhart;
     steinhart = average / thermistorNominal;     // (R/Ro)
     steinhart = log(steinhart);                  // ln(R/Ro)
@@ -524,44 +530,28 @@ void initMMA8452(byte fsr, byte dataRate)   // Initialize the MMA8452 registers
 }
 
 void portraitLandscapeHandler() // Reads the p/l source register and prints what direction the sensor is now facing
-
+// To minimize data transferred 1=On it's back, 2 = On it's face, 3 = Rightside Up, 4 = Upside Down.
 {
     byte pl = readRegister(MMA8452_ADDRESS,0x10);  // Reads the PL_STATUS register
     switch((pl&0x06)>>1)  // Check on the LAPO[1:0] bits
     {
         case 0:
             Serial.print("On it's back");
-            Orientation = "On it's back";
+            Orientation = 1;
             break;
         case 1:
             Serial.print("On it's face");
-            Orientation = "On it's face";
+            Orientation = 2;
             break;
         case 2:
             Serial.print("Rightside Up");
-            Orientation = "Rightside Up";
-            if (pl&0x40) { // Check the LO bit
-                Serial.print(", but tilted");
-                Orientation += ", but tilted";
-            }
+            Orientation = 3;
             break;
         case 3:
             Serial.print("Upside Down");
-            Orientation = "Upside Down";
-            if (pl&0x40) {  // Check the LO bit
-                Serial.print(", and tilted");
-                Orientation += ", and tilted";
-            }
+            Orientation = 4;
             break;
     }
-    /*
-    if (pl&0x01)  // Check the BAFRO bit
-        Serial.print("Back");
-    else
-        Serial.print("Front");
-    if (pl&0x40)  // Check the LO bit
-        Serial.print(", Z-tilt!");
-     */
     Serial.println();
 }
 

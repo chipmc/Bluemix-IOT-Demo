@@ -42,7 +42,7 @@
 #	TimerThree TinyGPS Tlc5940 TouchScreen UTFT VirtualWire Wire x10 
 #	XBee XPT2046_Touchscreen 
 #
-APP_LIBS_LIST = SPI Adafruit_CC3000 i2c_t3
+APP_LIBS_LIST = SPI Adafruit_CC3000 i2c_t3 WProgram
 
 # List user's libraries here 
 # default = 0 = none
