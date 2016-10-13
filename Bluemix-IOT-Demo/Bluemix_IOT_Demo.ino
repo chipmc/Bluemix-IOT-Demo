@@ -150,7 +150,8 @@ char c;                                  // Used to relay input from the GPS ser
 int Orientation;                   // Where we store orientation
 float Latitude;
 float Longitude;
-byte Sensitivity = 0x00;       // Hex variable for sensitivity
+byte Sensitivity = 0x70;       // Hex variable for sensitivity (0x00 to 0x7F range)
+boolean beenDropped = false;
 static byte source;
 int ledState = LOW;            // variable used to store the last LED status, to toggle the light
 float tempC = 0.0;
@@ -170,7 +171,7 @@ GPS gps(&gpsSerial,true);
 String buildJson();         // Function where we build the JSON payload
 void callback(char* topic, byte* payload, int length);      // Here we can capture reply messages from Bluemix
 void readAccelData(int * destination);   // Here is where we get acceleration on x,y,and z axes
-void getData();     // This section will sample the thermister for a temp measurement
+void getTempData();     // This section will sample the thermister for a temp measurement
 boolean testConnectionToBluemix();      // Let's make sure we can get to Bluemix before proceeding
 boolean GetConnected();  // Connection to Wifi
 void displayMACAddress(void);  //Tries to read the 6-byte MAC address of the CC3000 module
@@ -263,59 +264,62 @@ void loop()
     if (digitalRead(int2Pin)==1) {    // If int2 goes high, either p/l has changed or there's been a single/double tap
         source = readRegister(MMA8452_ADDRESS, 0x0C);  // Read the interrupt source reg.
         readRegister(MMA8452_ADDRESS,0x22);  // Reads the PULSE_SRC register to reset it
-        if ((source & 0x08)==0x08) { // If we see the tap register go high, we will take a reading
-            Serial.println("Movement detected...");
-            if (millis() >= LastReport + ReportingInterval) {
-                LastReport = millis();
-                ledState = !ledState;                        // toggle the status of the ledPin:
-                digitalWrite(ledRED, ledState);              // update the LED pin itself
-                if (gps.sentenceAvailable()) gps.parseSentence();
-                if(gps.fix) {
-                    gps.dataRead();
-                    Latitude = gps.latitude;
-                    Longitude = gps.longitude;
-                }
-                else
-                {
-                    Latitude = 39.0295;     // Dummy location - IBM Bethesda
-                    Longitude = -77.1357;
-                }
-                getData();
-                NonBlockingDelay(100); // To let the knock die out
-                readAccelData(accelCount);  // Read the x/y/z adc values
-                // Now we'll calculate the accleration value into actual g's
-                for (int i=0; i<3; i++)
-                    accelG[i] = (float) accelCount[i]/((1<<12)/(2*SCALE)) - accelGzeros[i];  // get actual g value,this depends on scale
-                for (int i=0; i<3; i++)                // Print out values
-                {
-                    Serial.print(Axes[i]);
-                    Serial.print("= ");
-                    Serial.print(accelG[i], 4);  // Print g values
-                    Serial.print("\t\t");  // tabs in between axes
-                }
-                Serial.println();
-                portraitLandscapeHandler();
-                Serial.println("logging");
-                if (!client.connected()) {
-                    Serial.print("Trying to connect to: ");
-                    Serial.println(MQTT_CLIENT_ID);
-                    client.connect(MQTT_CLIENT_ID, AUTHMETHOD, AUTHTOKEN);
-                }
-                if (client.connected() ) {
-                    String json = buildJson();
-                    char jsonStr[200];
-                    json.toCharArray(jsonStr,200);
-                    boolean pubresult = client.publish(MQTT_TOPIC,jsonStr);
-                    Serial.print("attempt to send ");
-                    Serial.println(jsonStr);
-                    Serial.print("to ");
-                    Serial.println(MQTT_TOPIC);
-                    if (pubresult) Serial.println("successfully sent");
-                    else Serial.println("unsuccessfully sent");
-                }
+        Serial.println("Movement detected...");
+        if (millis() >= LastReport + ReportingInterval) {
+            LastReport = millis();
+            ledState = !ledState;                        // toggle the status of the ledPin:
+            digitalWrite(ledRED, ledState);              // update the LED pin itself
+            
+            if (gps.sentenceAvailable()) gps.parseSentence();   // Get the GPS data
+            if(gps.fix) {
+                gps.dataRead();
+                Latitude = gps.latitude;
+                Longitude = gps.longitude;
             }
-
+            else
+            {
+                Latitude = 39.0295;     // Dummy location - IBM Bethesda
+                Longitude = -77.1357;
+            }
+            getTempData();                                      // Get the Temp Data
+            NonBlockingDelay(100); // To let the knock die out
+            readAccelData(accelCount);  // Read the x/y/z adc values    // Get the Accelerometer Data
+            // Now we'll calculate the accleration value into actual g's
+            for (int i=0; i<3; i++)
+                accelG[i] = (float) accelCount[i]/((1<<12)/(2*SCALE)) - accelGzeros[i];  // get actual g value,this depends on scale
+            for (int i=0; i<3; i++)                // Print out values
+            {
+                Serial.print(Axes[i]);
+                Serial.print("= ");
+                Serial.print(accelG[i], 4);  // Print g values
+                Serial.print("\t\t");  // tabs in between axes
+            }
+            Serial.println();
+            if ((source & 0x08)==0x08) { // If we see the tap register go high, we will register a Tap
+                beenDropped = true;
+            }
+            else beenDropped = false;
+            portraitLandscapeHandler();                 // Check the orientation
+            Serial.println("logging");                  // Now sent the JSON packet to Watson IOT
+            if (!client.connected()) {
+                Serial.print("Trying to connect to: ");
+                Serial.println(MQTT_CLIENT_ID);
+                client.connect(MQTT_CLIENT_ID, AUTHMETHOD, AUTHTOKEN);
+            }
+            if (client.connected() ) {
+                String json = buildJson();
+                char jsonStr[200];
+                json.toCharArray(jsonStr,200);
+                boolean pubresult = client.publish(MQTT_TOPIC,jsonStr);
+                Serial.print("attempt to send ");
+                Serial.println(jsonStr);
+                Serial.print("to ");
+                Serial.println(MQTT_TOPIC);
+                if (pubresult) Serial.println("successfully sent");
+                else Serial.println("unsuccessfully sent");
+            }
         }
+        NonBlockingDelay(100);      // Otherwise it runs too fast and fills the serial terminal - can comment out for production
     }
 }
 
@@ -335,6 +339,8 @@ String buildJson()  // Function where we build the JSON payload
     data += accelG[2];  // This maps z to y - our sensor sits on edge
     data += ",\"aZ\":";
     data += accelG[0];  // This maps x to z
+    data += ",\"Tap\":";
+    data += beenDropped;
     data +="}}";
     // Serial.println(data);  // For debugging
     return data;
@@ -370,7 +376,7 @@ void readAccelData(int * destination)   // Here is where we get acceleration on 
     }
 }
 
-void getData()      // This section will sample the thermister for a temp measurement
+void getTempData()      // This section will sample the thermister for a temp measurement
 {
     // Temperature Data Section
     // I did not have a fancy temp sensor but I did have some 10k NTC 3950 Thermistors so I built a voltage divider
