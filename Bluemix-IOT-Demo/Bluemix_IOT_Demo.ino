@@ -265,11 +265,15 @@ void loop()
         source = readRegister(MMA8452_ADDRESS, 0x0C);  // Read the interrupt source reg.
         readRegister(MMA8452_ADDRESS,0x22);  // Reads the PULSE_SRC register to reset it
         Serial.println("Movement detected...");
+        if ((source & 0x08)==0x08) { // If we see the tap register go high, we will register a Tap
+            beenDropped = true;
+            LastReport = 0; // This ensures that a Tap event get reported no matter the last logging
+        }
+        else beenDropped = false;
         if (millis() >= LastReport + ReportingInterval) {
             LastReport = millis();
             ledState = !ledState;                        // toggle the status of the ledPin:
             digitalWrite(ledRED, ledState);              // update the LED pin itself
-            
             if (gps.sentenceAvailable()) gps.parseSentence();   // Get the GPS data
             if(gps.fix) {
                 gps.dataRead();
@@ -282,23 +286,19 @@ void loop()
                 Longitude = -77.1357;
             }
             getTempData();                                      // Get the Temp Data
-            NonBlockingDelay(100); // To let the knock die out
-            readAccelData(accelCount);  // Read the x/y/z adc values    // Get the Accelerometer Data
+            NonBlockingDelay(100);                              // To let the knock die out
+            readAccelData(accelCount);                          // Get the raw Accelerometer Data
             // Now we'll calculate the accleration value into actual g's
             for (int i=0; i<3; i++)
                 accelG[i] = (float) accelCount[i]/((1<<12)/(2*SCALE)) - accelGzeros[i];  // get actual g value,this depends on scale
-            for (int i=0; i<3; i++)                // Print out values
+            for (int i=0; i<3; i++)                             // Print out values
             {
-                Serial.print(Axes[i]);
+                Serial.print(Axes[i]);                          // Axes lablels (as defined on the accel chip
                 Serial.print("= ");
-                Serial.print(accelG[i], 4);  // Print g values
+                Serial.print(accelG[i], 4);                     // Print g values
                 Serial.print("\t\t");  // tabs in between axes
             }
             Serial.println();
-            if ((source & 0x08)==0x08) { // If we see the tap register go high, we will register a Tap
-                beenDropped = true;
-            }
-            else beenDropped = false;
             portraitLandscapeHandler();                 // Check the orientation
             Serial.println("logging");                  // Now sent the JSON packet to Watson IOT
             if (!client.connected()) {
