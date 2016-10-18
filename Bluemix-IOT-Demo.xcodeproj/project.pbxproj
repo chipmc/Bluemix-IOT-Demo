@@ -3391,6 +3391,7 @@
 		817DF22B1DA5ADF6000FDA60 /* uploader_ssh.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; name = uploader_ssh.sh; path = Utilities/uploader_ssh.sh; sourceTree = "<group>"; };
 		817DF22C1DA5ADF6000FDA60 /* Bluemix_IOT_Demo.ino */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.cpp; path = Bluemix_IOT_Demo.ino; sourceTree = "<group>"; };
 		819F29101DAE3AF0008D9291 /* KeysandPasswords.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = KeysandPasswords.h; sourceTree = "<group>"; };
+		81B8A5D41DB5B89800D2BE96 /* Node-RED.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = "Node-RED.json"; sourceTree = "<group>"; };
 		AAAA161005175453AA000006 /* Bridge.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Bridge.cpp; sourceTree = "<group>"; };
 		AAAA161005175453AA000007 /* Bridge.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Bridge.h; sourceTree = "<group>"; };
 		AAAA161005175453AA000008 /* BridgeClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BridgeClient.cpp; sourceTree = "<group>"; };
@@ -6590,6 +6591,7 @@
 				817DF15B1DA5ADF5000FDA60 /* main.cpp */,
 				817DF15D1DA5ADF5000FDA60 /* Makefile */,
 				819F29101DAE3AF0008D9291 /* KeysandPasswords.h */,
+				81B8A5D41DB5B89800D2BE96 /* Node-RED.json */,
 				817DF15F1DA5ADF5000FDA60 /* ReadMe.txt */,
 				817DF22C1DA5ADF6000FDA60 /* Bluemix_IOT_Demo.ino */,
 				817DF1601DA5ADF5000FDA60 /* Sketchbook */,
