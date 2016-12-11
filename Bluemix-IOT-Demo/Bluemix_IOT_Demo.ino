@@ -168,7 +168,7 @@ HardwareSerial &gpsSerial = Serial1;
 GPS gps(&gpsSerial,true);
 
 // Prototypes
-String buildJson();         // Function where we build the JSON payload
+void buildJson(String &data);         // Function where we build the JSON payload
 void callback(char* topic, byte* payload, int length);      // Here we can capture reply messages from Bluemix
 void readAccelData(int * destination);   // Here is where we get acceleration on x,y,and z axes
 void getTempData();     // This section will sample the thermister for a temp measurement
@@ -307,7 +307,8 @@ void loop()
                 client.connect(MQTT_CLIENT_ID, AUTHMETHOD, AUTHTOKEN);
             }
             if (client.connected() ) {
-                String json = buildJson();
+                String json;
+                buildJson(json);
                 char jsonStr[200];
                 json.toCharArray(jsonStr,200);
                 boolean pubresult = client.publish(MQTT_TOPIC,jsonStr);
@@ -323,27 +324,26 @@ void loop()
     }
 }
 
-String buildJson()  // Function where we build the JSON payload
+void buildJson(String &data)  // Function where we build the JSON payload
 {
-    String data = "{\"d\":{\"TempC\":";
+    data = "{\"d\":{\"id\":\"42\",\"Tmp\":";
     data +=int(tempC);
-    data +=",\"Orient\":";
+    data +=",\"O\":";
     data +=Orientation;
     data += ",\"lat\":";
     data += Latitude;
     data += ",\"lng\":";
     data += Longitude;
-    data += ",\"aX\":";
-    data += accelG[1];  // This maps y to x - our sensor sits on edge not flat
-    data += ",\"aY\":";
-    data += accelG[2];  // This maps z to y - our sensor sits on edge
-    data += ",\"aZ\":";
-    data += accelG[0];  // This maps x to z
+    //data += ",\"aX\":";
+    //data += accelG[1];  // This maps y to x - our sensor sits on edge not flat
+    //data += ",\"aY\":";
+    //data += accelG[2];  // This maps z to y - our sensor sits on edge
+    //data += ",\"aZ\":";
+    //data += accelG[0];  // This maps x to z
     data += ",\"Tap\":";
     data += beenDropped;
     data +="}}";
     // Serial.println(data);  // For debugging
-    return data;
 }
 
 void callback(char* topic, byte* payload, int length)   // Here we can capture reply messages from Bluemix
